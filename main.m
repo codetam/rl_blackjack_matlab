@@ -1,64 +1,66 @@
-should_train = true;
-ObsInfo = rlNumericSpec([15 1]);
-ObsInfo.Name = "Blackjack State Vector";
-ObsInfo.Description = "Number of 1s, ..., 10s, sum, dealer, ace, bet, stake, gamestate";
+use_player = true;
+train_player = true;
+if use_player    
+    obsInfo = rlNumericSpec([21 1]);
+    obsInfo.Name = "Blackjack Player State Vector";
+    obsInfo.Description = "Number of 1s out, ..., 10s, number of 1s in player's hand, ..., 10s, dealer_card";
 
-ActInfo = rlFiniteSetSpec([1, 2, 3]);
-ActInfo.Description = "Bet size [5(1), 20(2), 100(3)] or Hit/Stand [1,2]";
+    actInfo = rlFiniteSetSpec([1, 2]);
+    actInfo.Description = "Hit/Stand [1,2]";
 
-env = rlFunctionEnv(ObsInfo,ActInfo,"stepFunction","resetFunction");
+    env = rlFunctionEnv(obsInfo,actInfo,"stepPlayer","resetPlayer");
+    criticNet = [
+        featureInputLayer(prod(obsInfo.Dimension))
+        fullyConnectedLayer(128)
+        reluLayer
+        fullyConnectedLayer(64)
+        reluLayer
+        fullyConnectedLayer(numel(actInfo.Elements))
+    ];
+    criticNet = dlnetwork(criticNet);
+    % summary(criticNet);
+    critic = rlVectorQValueFunction(criticNet,obsInfo,actInfo,'UseDevice','gpu');
+    criticOpts = rlOptimizerOptions(LearnRate=0.001);
 
-if should_train==true
     agentOpts = rlDQNAgentOptions(...
-        UseDoubleDQN = false, ...    
-        TargetSmoothFactor = 1, ...
-        TargetUpdateFrequency = 4, ...
-        DiscountFactor=0.99, ...
-        MiniBatchSize = 128);
+        UseDoubleDQN = false, ...   
+        CriticOptimizerOptions=criticOpts,...
+        MiniBatchSize = 128, ...
+        NumStepsToLookAhead=10, ...
+        ExperienceBufferLength = 1e6, ...
+        DiscountFactor=0.99);
     
-    agentOpts.CriticOptimizerOptions.Algorithm = "adam";
-    agentOpts.CriticOptimizerOptions.LearnRate = 1e-4;
-    agentOpts.EpsilonGreedyExploration.Epsilon = 1;
-    agentOpts.EpsilonGreedyExploration.EpsilonDecay = 1e-4;
-    agentOpts.EpsilonGreedyExploration.EpsilonMin = 0.01;
-    agentOpts.ExperienceBufferLength = 1e6;
+    agent = rlDQNAgent(critic,agentOpts);
     
-    initOpts = rlAgentInitializationOptions(NumHiddenUnit = 256);
-    
-    DQNagent = rlDQNAgent(ObsInfo, ActInfo, initOpts, agentOpts);
-    
+    % evaluator options
     evaluator = rlEvaluator( ...
-        EvaluationFrequency=100, ...
         EvaluationStatisticType="MeanEpisodeReward", ...
-        NumEpisodes=25, ...
-        RandomSeeds=0:24);
-    
+        NumEpisodes=20, ...
+        EvaluationFrequency=100, ...
+        RandomSeeds=0:19);
+
+    % training options
     MaxEpisodes = 50000;
     trainOpts = rlTrainingOptions(...
         MaxEpisodes = MaxEpisodes, ...
+        MaxStepsPerEpisode=500, ...
+        ScoreAveragingWindowLength=50, ...
         Verbose = false, ...
-        ScoreAveragingWindowLength=20, ...
-        StopTrainingCriteria="none", ...
-        SaveAgentCriteria="EvaluationStatistic", ...
-        SaveAgentValue=9);
-    
-    % load("savedAgents/Agent82000.mat")
-    % savedAgentResult.TrainingOptions.MaxEpisodes = 100000;
-    % trainOpts = savedAgentResult.TrainingOptions;
+        Plots="training-progress", ...
+        SaveAgentCriteria="EpisodeFrequency", ...
+        SaveAgentValue=5000);
+    % trainOpts.UseParallel = true;
+    % trainOpts.ParallelizationOptions.Mode = "async";
 
-
-    trainingStats = train(DQNagent,env,trainOpts, Evaluator=evaluator);
-else
-    load("savedAgents/Agent82000.mat")
-    num_steps = 10000;
-    rewards = zeros(num_steps,1);
-    simOptions = rlSimulationOptions(MaxSteps=500);
-    h = animatedline;
-    for i = 1:num_steps
-        experience = sim(env,saved_agent,simOptions);
-        rewards(i) = experience.Reward.Data(2);
-        addpoints(h,i,sum(rewards));
-        drawnow;
+    if train_player
+        % Train the agent.
+        trainingStats = train(agent,env,trainOpts, Evaluator=evaluator);
+    else
+        rng(0);
+        InitialObs = reset(env);
+        InitialObs'
+        [NextObs,Reward,IsDone,Info] = step(env,1);
+        NextObs'
     end
 end
 

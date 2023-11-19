@@ -1,6 +1,6 @@
 function [NextObs,Reward,IsDone,NextState] = stepFunction(Action,State)
     NextState = State;
-    NextObs = zeros(15,1);
+    NextObs = zeros(21,1);
     if State.gamestate == 1
         if ~ismember(Action,[1 2 3])
             error('Action must be 1, 2 or 3');
@@ -18,8 +18,10 @@ function [NextObs,Reward,IsDone,NextState] = stepFunction(Action,State)
 
         % add player cards
         NextState.player_cards = NextState.deck(NextState.num_players*2-1:NextState.num_players*2)';
-        player_nums = arrayfun(@getcardnum, NextState.player_cards);
-        NextObs(11) = calculatesum(player_nums);
+        for i = 1:num_cards_out
+            NextObs(10 + getcardnum(NextState.player_cards(i))) = ...
+                NextObs(10 + getcardnum(NextState.player_cards(i))) + 1;
+        end
         % add dealer card
         NextState.dealer_cards = NextState.deck(NextState.num_players*2+1);
         NextObs(12) = getcardnum(NextState.deck(NextState.num_players*2+1));
